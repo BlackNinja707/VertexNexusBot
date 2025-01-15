@@ -1,69 +1,152 @@
-require('dotenv').config();
+require("dotenv").config();
 
-const web3 = require('@solana/web3.js');
-const storage = require('node-persist');
-const base58 = require('bs58');
+const web3 = require("@solana/web3.js");
+const storage = require("node-persist");
+const base58 = require("bs58");
+const Web3 = require("web3");
 const connection = new web3.Connection(process.env.RPC_URL);
 storage.init();
 
-/**
- * Displays the user's Solana wallet information, including the public key, balance, and provides various wallet management options.
- *
- * @param {number} chatId - The chat ID of the user.
- * @param {object} bot - The Telegram bot instance.
- * @param {number} [msgId] - The message ID of the existing wallet message, if any.
- * @returns {Promise<void>} - Resolves when the wallet message is sent or updated.
- */
 const Wallet = async (chatId, bot, msgId) => {
-    let user_pub_key;
+  const userWallet = await storage.getItem(`userWallet_${chatId}`);
 
-    await storage.getItem(`userWallet_${chatId}`).then(async (userWallet) => {
-        user_pub_key = userWallet.publicKey;
-    });
+  if (userWallet.network === "sol") {
+    const user_pub_key = userWallet.sol.publicKey;
 
-    const balance = await connection.getBalance(new web3.PublicKey(user_pub_key));
+    const balance = await connection.getBalance(
+      new web3.PublicKey(user_pub_key)
+    );
     const walletbalance = balance / web3.LAMPORTS_PER_SOL;
 
     const txt =
-        `<b>Your Wallet:</b> \n\nAddress : <code>${user_pub_key}</code>\n` +
-        `Balance : <b>${walletbalance}</b> SOL \n\n Tap to copy the address and send SOL to deposit.`;
+      `<b>Your Wallet:</b> \n\nAddress : <code>${user_pub_key}</code>\n` +
+      `Balance : <b>${walletbalance}</b> SOL \n\n Tap to copy the address and send SOL to deposit.`;
 
     const wallet_markup = {
-        inline_keyboard: [
-            [
-                {
-                    text: "View on Solscan",
-                    url: "https://solscan.io/account/" + user_pub_key,
-                },
-                { text: "Close", callback_data: "close" },
-            ],
-            [{ text: "Deposit SOL", callback_data: "deposit" }],
-            [
-                { text: "Withdraw all SOL", callback_data: "withdrawall" },
-                { text: "Withdraw X SOL", callback_data: "withdraw" },
-            ],
-            [
-                { text: "Reset Wallet", callback_data: "resetwallet" },
-                { text: "Export Private Key", callback_data: "exportpk" },
-            ],
-            [{ text: "Refresh", callback_data: "refresh_wallet" }],
+      inline_keyboard: [
+        [
+          {
+            text: "View on Solscan",
+            url: "https://solscan.io/account/" + user_pub_key,
+          },
+          { text: "Close", callback_data: "close" },
         ],
+        [{ text: "Deposit SOL", callback_data: "deposit" }],
+        [
+          { text: "Withdraw all SOL", callback_data: "withdrawall" },
+          { text: "Withdraw X SOL", callback_data: "withdraw" },
+        ],
+        [
+          { text: "Reset Wallet", callback_data: "resetwallet" },
+          { text: "Export Private Key", callback_data: "exportpk" },
+        ],
+        [{ text: "Refresh", callback_data: "refresh_wallet" }],
+      ],
     };
     if (!msgId) {
-        bot.sendMessage(chatId, txt, {
-            reply_markup: wallet_markup,
-            parse_mode: "html",
-        });
+      bot.sendMessage(chatId, txt, {
+        reply_markup: wallet_markup,
+        parse_mode: "html",
+      });
     } else {
-        bot.editMessageText(txt, {
-            chat_id: chatId,
-            message_id: msgId,
-            reply_markup: wallet_markup,
-            parse_mode: "html",
-        });
+      bot.editMessageText(txt, {
+        chat_id: chatId,
+        message_id: msgId,
+        reply_markup: wallet_markup,
+        parse_mode: "html",
+      });
     }
+  } else if (userWallet.network === "eth") {
+    const user_pub_key = userWallet.eth.publicKey;
+    const web3 = new Web3(process.env.ETH_INFURA_URL);
+    const balance = await web3.eth.getBalance(user_pub_key);
+    const eth_balance = web3.utils.fromWei(balance, "ether");
+
+    const txt =
+      `<b>Your Wallet:</b> \n\nAddress : <code>${user_pub_key}</code>\n` +
+      `Balance : <b>${eth_balance}</b> SOL \n\n Tap to copy the address and send SOL to deposit.`;
+
+    const wallet_markup = {
+      inline_keyboard: [
+        [
+          {
+            text: "View on Etherscan",
+            url: "https://etherscan.io/account/" + user_pub_key,
+          },
+          { text: "Close", callback_data: "close" },
+        ],
+        [{ text: "Deposit ETH", callback_data: "deposit_eth" }],
+        [
+          { text: "Withdraw all ETH", callback_data: "withdrawall_eth" },
+          { text: "Withdraw X ETH", callback_data: "withdraw_eth" },
+        ],
+        [
+          { text: "Reset Wallet", callback_data: "resetwallet" },
+          { text: "Export Private Key", callback_data: "exportpk" },
+        ],
+        [{ text: "Refresh", callback_data: "refresh_wallet" }],
+      ],
+    };
+    if (!msgId) {
+      bot.sendMessage(chatId, txt, {
+        reply_markup: wallet_markup,
+        parse_mode: "html",
+      });
+    } else {
+      bot.editMessageText(txt, {
+        chat_id: chatId,
+        message_id: msgId,
+        reply_markup: wallet_markup,
+        parse_mode: "html",
+      });
+    }
+  } else if (userWallet.network === "bsc") {
+    const user_pub_key = userWallet.bsc.publicKey;
+    const web3 = new Web3(process.env.BSC_INFURA_URL);
+    const balance = await web3.eth.getBalance(user_pub_key);
+    const bsc_balance = web3.utils.fromWei(balance, "ether");
+
+    const txt =
+      `<b>Your Wallet:</b> \n\nAddress : <code>${user_pub_key}</code>\n` +
+      `Balance : <b>${bsc_balance}</b> BNB \n\n Tap to copy the address and send BNB to deposit.`;
+
+    const wallet_markup = {
+      inline_keyboard: [
+        [
+          {
+            text: "View on Bscscan",
+            url: "https://bscscan.com/address/" + user_pub_key,
+          },
+          { text: "Close", callback_data: "close" },
+        ],
+        [{ text: "Deposit BNB", callback_data: "deposit_bnb" }],
+        [
+          { text: "Withdraw all BNB", callback_data: "withdrawall_bnb" },
+          { text: "Withdraw X BNB", callback_data: "withdraw_bnb" },
+        ],
+        [
+          { text: "Reset Wallet", callback_data: "resetwallet" },
+          { text: "Export Private Key", callback_data: "exportpk" },
+        ],
+        [{ text: "Refresh", callback_data: "refresh_wallet" }],
+      ],
+    };
+    if (!msgId) {
+      bot.sendMessage(chatId, txt, {
+        reply_markup: wallet_markup,
+        parse_mode: "html",
+      });
+    } else {
+      bot.editMessageText(txt, {
+        chat_id: chatId,
+        message_id: msgId,
+        reply_markup: wallet_markup,
+        parse_mode: "html",
+      });
+    }
+  }
 };
 
 module.exports = {
-    Wallet
-}
+  Wallet,
+};
