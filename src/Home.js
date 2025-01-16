@@ -2,14 +2,19 @@ require("dotenv").config();
 
 const web3 = require("@solana/web3.js");
 const storage = require("node-persist");
-const Web3 =  require("web3");
+const Web3 = require("web3");
 const { Ed25519Keypair } = require("@mysten/sui/keypairs/ed25519");
+const { getFullnodeUrl, SuiClient } = require("@mysten/sui/client");
 const { ethers } = require("ethers");
 const base58 = require("bs58");
 const { getTokenAccounts } = require("./Helius");
 const connection = new web3.Connection(
   "https://mainnet.helius-rpc.com/?api-key=7ee5ade7-805f-4c9f-8252-f370010985aa"
 );
+
+const suiClient = new SuiClient({
+  url: getFullnodeUrl("mainnet"),
+});
 
 storage.init();
 
@@ -141,15 +146,15 @@ const home = async (chatId, bot, msgId) => {
         const balance = await web3.eth.getBalance(userWallet.eth.publicKey);
         const eth_balance = ethers.formatEther(balance);
         if (eth_balance > 0) {
-            txt +=
-              `You currently have a balance of <b>${eth_balance}</b> ETH.\n\n` +
-              `To get started trading, you can open a position by buying a token.\n\n` +
-              `To buy a token just enter a token address or paste a Birdeye link,` +
-              ` and you will see a Buy dashboard pop up where you can choose how much you want to buy.\n\n` +
-              `Advanced traders can enable Auto Buy in their settings. When enabled,` +
-              ` VertexTradingBot will instantly buy any token you enter with a fixed amount that you set.` +
-              ` This is <b>disabled</b> by default.\n\n` +
-              `Wallet:\n<code>${userWallet.eth.publicKey}</code>`;
+          txt +=
+            `You currently have a balance of <b>${eth_balance}</b> ETH.\n\n` +
+            `To get started trading, you can open a position by buying a token.\n\n` +
+            `To buy a token just enter a token address or paste a Birdeye link,` +
+            ` and you will see a Buy dashboard pop up where you can choose how much you want to buy.\n\n` +
+            `Advanced traders can enable Auto Buy in their settings. When enabled,` +
+            ` VertexTradingBot will instantly buy any token you enter with a fixed amount that you set.` +
+            ` This is <b>disabled</b> by default.\n\n` +
+            `Wallet:\n<code>${userWallet.eth.publicKey}</code>`;
         } else {
           txt +=
             `ETH's fastest bot to trade any coin, and Vertex's official Telegram trading bot.\n\n` +
@@ -181,6 +186,33 @@ const home = async (chatId, bot, msgId) => {
             `BSC's fastest bot to trade any coin, and Vertex's official Telegram trading bot.\n\n` +
             `You currently have no BNB balance. To get started with trading, send some BNB to your VertexTradingBot wallet address:\n\n` +
             `<code>${userWallet.bsc.publicKey}</code>(tap to copy)\n\n` +
+            `Once done tap refresh and your balance will appear here.\n\n` +
+            `To buy a token just enter a token address, or even post the birdeye link of the coin.\n\n` +
+            `For more info on your wallet and to retrieve your private key, tap the wallet button below.` +
+            `We guarantee the safety of user funds on VertexTradingBot, but if you expose your private key your funds will not be safe.`;
+        }
+      }
+      if (userWallet.network === "sui") {
+        const balance = await suiClient.getBalance({
+          owner: userWallet.sui.publicKey,
+        });
+        const sui_balance = Number(balance.totalBalance) / 1000000000;
+        console.log("choosed sui balance:", sui_balance);
+        if (sui_balance > 0) {
+          txt +=
+            `You currently have a balance of <b>${sui_balance.toFixed(4)}</b> SUI.\n\n` +
+            `To get started trading, you can open a position by buying a token.\n\n` +
+            `To buy a token just enter a token address or paste a Birdeye link,` +
+            ` and you will see a Buy dashboard pop up where you can choose how much you want to buy.\n\n` +
+            `Advanced traders can enable Auto Buy in their settings. When enabled,` +
+            ` VertexTradingBot will instantly buy any token you enter with a fixed amount that you set.` +
+            ` This is <b>disabled</b> by default.\n\n` +
+            `Wallet:\n<code>${userWallet.sui.publicKey}</code>`;
+        } else {
+          txt +=
+            `SUI's fastest bot to trade any coin, and Vertex's official Telegram trading bot.\n\n` +
+            `You currently have no SUI balance. To get started with trading, send some SUI to your VertexTradingBot wallet address:\n\n` +
+            `<code>${userWallet.sui.publicKey}</code>(tap to copy)\n\n` +
             `Once done tap refresh and your balance will appear here.\n\n` +
             `To buy a token just enter a token address, or even post the birdeye link of the coin.\n\n` +
             `For more info on your wallet and to retrieve your private key, tap the wallet button below.` +

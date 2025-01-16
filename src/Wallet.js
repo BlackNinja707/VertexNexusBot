@@ -4,8 +4,13 @@ const web3 = require("@solana/web3.js");
 const storage = require("node-persist");
 const base58 = require("bs58");
 const Web3 = require("web3");
+const { getFullnodeUrl, SuiClient } = require("@mysten/sui/client");
 const connection = new web3.Connection(process.env.RPC_URL);
 storage.init();
+
+const suiClient = new SuiClient({
+  url: getFullnodeUrl("mainnet"),
+});
 
 const Wallet = async (chatId, bot, msgId) => {
   const userWallet = await storage.getItem(`userWallet_${chatId}`);
@@ -123,6 +128,51 @@ const Wallet = async (chatId, bot, msgId) => {
         [
           { text: "Withdraw all BNB", callback_data: "withdrawall_bnb" },
           { text: "Withdraw X BNB", callback_data: "withdraw_bnb" },
+        ],
+        [
+          { text: "Reset Wallet", callback_data: "resetwallet" },
+          { text: "Export Private Key", callback_data: "exportpk" },
+        ],
+        [{ text: "Refresh", callback_data: "refresh_wallet" }],
+      ],
+    };
+    if (!msgId) {
+      bot.sendMessage(chatId, txt, {
+        reply_markup: wallet_markup,
+        parse_mode: "html",
+      });
+    } else {
+      bot.editMessageText(txt, {
+        chat_id: chatId,
+        message_id: msgId,
+        reply_markup: wallet_markup,
+        parse_mode: "html",
+      });
+    }
+  }else if (userWallet.network === "sui") {
+    const user_pub_key = userWallet.sui.publicKey;
+    const balance = await suiClient.getBalance({
+      owner: userWallet.sui.publicKey,
+    });
+    const sui_balance = Number(balance.totalBalance) / 1000000000;
+
+    const txt =
+      `<b>Your Wallet:</b> \n\nAddress : <code>${user_pub_key}</code>\n` +
+      `Balance : <b>${sui_balance}</b> SUI \n\n Tap to copy the address and send BNB to deposit.`;
+
+    const wallet_markup = {
+      inline_keyboard: [
+        [
+          {
+            text: "View on Suiscan",
+            url: "https://suivision.xyz/account/" + user_pub_key,
+          },
+          { text: "Close", callback_data: "close" },
+        ],
+        [{ text: "Deposit SUI", callback_data: "deposit_sui" }],
+        [
+          { text: "Withdraw all SUI", callback_data: "withdrawall_sui" },
+          { text: "Withdraw X SUI", callback_data: "withdraw_sui" },
         ],
         [
           { text: "Reset Wallet", callback_data: "resetwallet" },

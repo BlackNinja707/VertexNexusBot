@@ -3,14 +3,19 @@ require("dotenv").config();
 const web3 = require("@solana/web3.js");
 const { ethers } = require("ethers");
 const storage = require("node-persist");
+const { getFullnodeUrl, SuiClient } = require("@mysten/sui/client");
+const { Ed25519Keypair } = require("@mysten/sui/keypairs/ed25519");
+const { Transaction } = require("@mysten/sui/transactions");
 const base58 = require("bs58");
 const Web3 = require("web3");
 const { isWalletAddress } = require("./utils");
 const connection = new web3.Connection(process.env.RPC_URL);
-const bscProvider = new ethers.JsonRpcProvider(process.env.BSC_INFURA_URL);
-const ethProvider = new ethers.JsonRpcProvider(process.env.ETH_INFURA_URL);
 
 storage.init();
+
+const suiClient = new SuiClient({
+  url: getFullnodeUrl("mainnet"),
+});
 
 const Withdraw = async (chatId, bot, amountType) => {
   let user_pub_key;
@@ -485,6 +490,126 @@ const Withdraw = async (chatId, bot, amountType) => {
 
                   // Validate the destination address
                   const sig_text = `Transaction confirmed, Transaction ID:\n <a href="https://bscscan.com/tx/${signedTx.transactionHash}"></a>`;
+                  bot.sendMessage(chatId, sig_text, {
+                    parse_mode: "HTML",
+                  });
+                } catch (error) {
+                  bot.sendMessage(
+                    chatId,
+                    `Transaction failed, withdrawing SOL: ${error.message}`
+                  );
+                }
+              }
+            } catch (error) {
+              bot.sendMessage(
+                chatId,
+                `Invalid destination address:\n ${error.message}`
+              );
+            }
+          });
+        });
+    }
+  }
+  if (userWallet.network === "sui") {
+    await storage.getItem(`userWallet_${chatId}`).then(async (userWallet) => {
+      user_pub_key = userWallet.sui.publicKey;
+      user_pri_key = userWallet.sui.privateKey;
+    });
+
+    const balance = await suiClient.getBalance({
+      owner: userWallet.sui.publicKey,
+    });
+    const sui_balance = Number(balance.totalBalance) / 1000000000;
+
+    if (amountType === "x") {
+      bot
+        .sendMessage(
+          chatId,
+          `Reply with the amount to withdraw(0 - ${sui_balance})`,
+          {
+            reply_markup: { force_reply: true },
+          }
+        )
+        .then((msg) => {
+          bot.onReplyToMessage(chatId, msg.message_id, async (msg) => {
+            const amount = parseFloat(msg.text);
+            if (isNaN(amount) || amount < 0 || amount > sui_balance) {
+              bot.sendMessage(
+                chatId,
+                "Invalid withdrawal amount. Please enter a valid amount."
+              );
+            } else {
+              bot
+                .sendMessage(chatId, "Reply with the destination address", {
+                  reply_markup: { force_reply: true },
+                })
+                .then(async (msg) => {
+                  bot.onReplyToMessage(
+                    chatId,
+                    msg.message_id,
+                    async (msg_address) => {
+                      try {
+                        const destinationAddress = msg_address.text.trim();
+                        const tx = new Transaction();
+                        const [coin] = tx.splitCoins(tx.gas, [
+                          amount * 1000000000,
+                        ]);
+                        tx.transferObjects([coin], destinationAddress);
+                        bot.sendMessage(chatId, "Withdrawing SUI...");
+                        const keypair = Ed25519Keypair.fromSecretKey(
+                          userWallet.sui.privateKey
+                        );
+                        const result =
+                          await suiClient.signAndExecuteTransaction({
+                            signer: keypair,
+                            transaction: tx,
+                          });
+
+                        // Validate the destination address
+                        const sig_text = `Transaction confirmed, Transaction ID:\n <a href="https://suivision.xyz/tx/${result}"></a>`;
+                        bot.sendMessage(chatId, sig_text, {
+                          parse_mode: "HTML",
+                        });
+                      } catch (error) {
+                        console.log("error:", error);
+                        bot.sendMessage(
+                          chatId,
+                          `Invalid destination address:\n ${error.message}`
+                        );
+                      }
+                    }
+                  );
+                });
+            }
+          });
+        });
+    } else if (amountType === "all") {
+      bot
+        .sendMessage(chatId, "Reply with the destination address", {
+          reply_markup: { force_reply: true },
+        })
+        .then((msg) => {
+          bot.onReplyToMessage(chatId, msg.message_id, async (msg_address) => {
+            const destinationAddress = msg_address.text.trim();
+            // Validate the destination address
+            try {
+              if (isWalletAddress(user_pub_key)) {
+                bot.sendMessage(chatId, "Withdrawing SUI...");
+                const tx = new Transaction();
+                const [coin] = tx.splitCoins(tx.gas, [balance]);
+                tx.transferObjects([coin], destinationAddress);
+                bot.sendMessage(chatId, "Withdrawing SUI...");
+
+                try {
+                  const keypair = Ed25519Keypair.fromSecretKey(
+                    userWallet.sui.privateKey
+                  );
+                  const result = await suiClient.signAndExecuteTransaction({
+                    signer: keypair,
+                    transaction: tx,
+                  });
+                  // Validate the destination address
+                  const sig_text = `Transaction confirmed, Transaction ID:\n <a href="https://suivision.xyz/tx/${result}"></a>`;
                   bot.sendMessage(chatId, sig_text, {
                     parse_mode: "HTML",
                   });
