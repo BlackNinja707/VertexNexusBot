@@ -2,20 +2,31 @@ require("dotenv").config();
 
 const TelegramBot = require("node-telegram-bot-api");
 const web3 = require("@solana/web3.js");
+const { Ed25519Keypair } = require("@mysten/sui/keypairs/ed25519");
 const storage = require("node-persist");
 const base58 = require("bs58");
+const Web3 = require("web3");
+const { getFullnodeUrl, SuiClient } = require("@mysten/sui/client");
 
 const { setbot } = require("./src/Setbot");
 const { home } = require("./src/Home");
 const { buy } = require("./src/Buy");
 const { sell } = require("./src/Sell");
+const {sellOther} = require("./src/SellOther");
 const { Wallet } = require("./src/Wallet");
 const { getTokenAccounts } = require("./src/Helius");
 const { Withdraw } = require("./src/Withdraw");
 const { BuySOL } = require("./src/BuySOL");
+const { BuyBNB } = require("./src/BuyBNB");
+const { BuyETH } = require("./src/BuyETH");
+
 const { SellSOL } = require("./src/SellSOL");
 const { setnetwork } = require("./src/SetNetwork");
 const Moralis = require("moralis").default;
+
+const suiClient = new SuiClient({
+  url: getFullnodeUrl("mainnet"),
+});
 
 Moralis.start({
   apiKey: process.env.MORALIS_API_KEY,
@@ -46,7 +57,7 @@ storage.init();
 bot.on("message", async (msg) => {
   const chatId = msg.chat.id;
   const messageText = msg.text;
-
+  const userWallet = await storage.getItem(`userWallet_${chatId}`);
   if (!messageText) {
   } else if (messageText.startsWith("/")) {
     const command = messageText.slice(1).toLowerCase();
@@ -71,22 +82,31 @@ bot.on("message", async (msg) => {
         break;
     }
   } else if (!msg.reply_to_message) {
-    tokenAddress = messageText;
-    const regex = /\/([^\/]+)$/;
-    const match = messageText.match(regex);
-    if (match) tokenAddress = match[1];
-    const err_txt = `Token not found. Make sure address (${tokenAddress}) is correct. You can enter a token address or a Solscan/Birdeye link. If you are trying to enter a buy or sell amount, ensure you click and reply to the message`;
+    if (userWallet.network === "sol") {
+      tokenAddress = messageText;
+      const regex = /\/([^\/]+)$/;
+      const match = messageText.match(regex);
+      if (match) tokenAddress = match[1];
+      const err_txt = `Token not found. Make sure address (${tokenAddress}) is correct. You can enter a token address or a Solscan/Birdeye link. If you are trying to enter a buy or sell amount, ensure you click and reply to the message`;
 
-    try {
-      const token = new web3.PublicKey(tokenAddress);
-      const tokenAccountInfo = await connection.getParsedAccountInfo(token);
-      if (tokenAccountInfo) {
-        buy(chatId, bot, tokenAddress);
-      } else {
+      try {
+        const token = new web3.PublicKey(tokenAddress);
+        const tokenAccountInfo = await connection.getParsedAccountInfo(token);
+        if (tokenAccountInfo) {
+          buy(chatId, bot, tokenAddress);
+        } else {
+          bot.sendMessage(chatId, err_txt);
+        }
+      } catch (error) {
         bot.sendMessage(chatId, err_txt);
       }
-    } catch (error) {
-      bot.sendMessage(chatId, err_txt);
+    } else {
+      tokenAddress = messageText;
+      try {
+        buy(chatId, bot, tokenAddress);
+      } catch (error) {
+        bot.sendMessage(chatId, err_txt);
+      }
     }
   }
 });
@@ -131,16 +151,21 @@ bot.on("callback_query", async (query) => {
       });
       break;
     case "sell":
-      // Handle sell button click
-      if (sell_data.total === 0) {
-        bot.sendMessage(chatId, `No Open positions`, {
-          reply_markup: {
-            inline_keyboard: [[{ text: "Close", callback_data: "close" }]],
-          },
-          parse_mode: "html",
-        });
-      } else {
-        sell(chatId, bot, sell_data, sell_count);
+      if (userWallet.network === "sol") {
+        // Handle sell button click
+        if (sell_data.total === 0) {
+          bot.sendMessage(chatId, `No Open positions`, {
+            reply_markup: {
+              inline_keyboard: [[{ text: "Close", callback_data: "close" }]],
+            },
+            parse_mode: "html",
+          });
+        } else {
+          sell(chatId, bot, sell_data, sell_count);
+        }
+      }
+      else {
+        sellOther(chatId, bot);
       }
       break;
     case "help":
@@ -197,8 +222,8 @@ bot.on("callback_query", async (query) => {
       storage.getItem(`userWallet_${chatId}`).then(async (userWallet) => {
         userWallet.network = "sui";
         await storage.setItem(`userWallet_${chatId}`, userWallet);
+        await home(chatId, bot);
       });
-      await home(chatId, bot);
       break;
     //network end
 
@@ -212,14 +237,21 @@ bot.on("callback_query", async (query) => {
       break;
     case "deposit_bnb":
       // Handle deposit button click
-      bot.sendMessage(chatId, "To deposit send SOL to below address:");
+      bot.sendMessage(chatId, "To deposit send BNB to below address:");
       bot.sendMessage(chatId, `<code>${userWallet.bsc.publicKey}</code>`, {
+        parse_mode: "html",
+      });
+      break;
+    case "deposit_sui":
+      // Handle deposit button click
+      bot.sendMessage(chatId, "To deposit send SUI to below address:");
+      bot.sendMessage(chatId, `<code>${userWallet.sui.publicKey}</code>`, {
         parse_mode: "html",
       });
       break;
     case "deposit_eth":
       // Handle deposit button click
-      bot.sendMessage(chatId, "To deposit send SOL to below address:");
+      bot.sendMessage(chatId, "To deposit send ETH to below address:");
       bot.sendMessage(chatId, `<code>${userWallet.eth.publicKey}</code>`, {
         parse_mode: "html",
       });
@@ -301,7 +333,15 @@ bot.on("callback_query", async (query) => {
       // Handle withdraw all SOL button click
       Withdraw(chatId, bot, "all");
       break;
+    case "withdrawall_sui":
+      // Handle withdraw all SOL button click
+      Withdraw(chatId, bot, "all");
+      break;
     case "withdraw_bnb":
+      // Handle withdraw X SOL button click
+      await Withdraw(chatId, bot, "x");
+      break;
+    case "withdraw_sui":
       // Handle withdraw X SOL button click
       await Withdraw(chatId, bot, "x");
       break;
@@ -315,30 +355,121 @@ bot.on("callback_query", async (query) => {
       break;
     case "resetwallet":
       // Handle reset wallet button click
-      let reest_txt;
-      if (walletbalance > 0) {
-        reest_txt =
-          `Are you sure you want to <b>reset</b> your VertexTradingBot <b>Wallet</b>?\n\n` +
-          `<b>WARNING: This action is irreversible!</b>\n\n` +
-          `VertexTradingBot will generate a new wallet for you and discard your old one.\n\n` +
-          `You have <b>${walletbalance}</b> SOL in your wallet. If you don't withdraw or back up the private key it will get lost.`;
-      } else {
-        reest_txt =
-          `Are you sure you want to <b>reset</b> your VertexTradingBot <b>Wallet</b>?\n\n` +
-          `<b>WARNING: This action is irreversible!</b>\n\n` +
-          `VertexTradingBot will generate a new wallet for you and discard your old one.`;
-      }
-      bot.sendMessage(chatId, reest_txt, {
-        parse_mode: "HTML",
-        reply_markup: {
-          inline_keyboard: [
-            [
-              { text: "Cancle", callback_data: "close" },
-              { text: "Confirm", callback_data: "confirmreset" },
+      if (userWallet.network === "sol") {
+        let reest_txt;
+        if (walletbalance > 0) {
+          reest_txt =
+            `Are you sure you want to <b>reset</b> your VertexTradingBot <b>Wallet</b>?\n\n` +
+            `<b>WARNING: This action is irreversible!</b>\n\n` +
+            `VertexTradingBot will generate a new wallet for you and discard your old one.\n\n` +
+            `You have <b>${walletbalance}</b> SOL in your wallet. If you don't withdraw or back up the private key it will get lost.`;
+        } else {
+          reest_txt =
+            `Are you sure you want to <b>reset</b> your VertexTradingBot <b>Wallet</b>?\n\n` +
+            `<b>WARNING: This action is irreversible!</b>\n\n` +
+            `VertexTradingBot will generate a new wallet for you and discard your old one.`;
+        }
+        bot.sendMessage(chatId, reest_txt, {
+          parse_mode: "HTML",
+          reply_markup: {
+            inline_keyboard: [
+              [
+                { text: "Cancle", callback_data: "close" },
+                { text: "Confirm", callback_data: "confirmreset" },
+              ],
             ],
-          ],
-        },
-      });
+          },
+        });
+      } else if (userWallet.network === "bsc") {
+        let reest_txt;
+        const user_pub_key = userWallet.bsc.publicKey;
+        const web3 = new Web3(process.env.BSC_INFURA_URL);
+        const balance = await web3.eth.getBalance(user_pub_key);
+        const bsc_balance = web3.utils.fromWei(balance, "ether");
+        if (bsc_balance > 0) {
+          reest_txt =
+            `Are you sure you want to <b>reset</b> your VertexTradingBot <b>Wallet</b>?\n\n` +
+            `<b>WARNING: This action is irreversible!</b>\n\n` +
+            `VertexTradingBot will generate a new wallet for you and discard your old one.\n\n` +
+            `You have <b>${bsc_balance}</b> SOL in your wallet. If you don't withdraw or back up the private key it will get lost.`;
+        } else {
+          reest_txt =
+            `Are you sure you want to <b>reset</b> your VertexTradingBot <b>Wallet</b>?\n\n` +
+            `<b>WARNING: This action is irreversible!</b>\n\n` +
+            `VertexTradingBot will generate a new wallet for you and discard your old one.`;
+        }
+        bot.sendMessage(chatId, reest_txt, {
+          parse_mode: "HTML",
+          reply_markup: {
+            inline_keyboard: [
+              [
+                { text: "Cancle", callback_data: "close" },
+                { text: "Confirm", callback_data: "confirmreset" },
+              ],
+            ],
+          },
+        });
+      } else if (userWallet.network === "eth") {
+        let reest_txt;
+        const user_pub_key = userWallet.eth.publicKey;
+        const web3 = new Web3(process.env.ETH_INFURA_URL);
+        const balance = await web3.eth.getBalance(user_pub_key);
+        const eth_balance = web3.utils.fromWei(balance, "ether");
+        if (eth_balance > 0) {
+          reest_txt =
+            `Are you sure you want to <b>reset</b> your VertexTradingBot <b>Wallet</b>?\n\n` +
+            `<b>WARNING: This action is irreversible!</b>\n\n` +
+            `VertexTradingBot will generate a new wallet for you and discard your old one.\n\n` +
+            `You have <b>${eth_balance}</b> SOL in your wallet. If you don't withdraw or back up the private key it will get lost.`;
+        } else {
+          reest_txt =
+            `Are you sure you want to <b>reset</b> your VertexTradingBot <b>Wallet</b>?\n\n` +
+            `<b>WARNING: This action is irreversible!</b>\n\n` +
+            `VertexTradingBot will generate a new wallet for you and discard your old one.`;
+        }
+        bot.sendMessage(chatId, reest_txt, {
+          parse_mode: "HTML",
+          reply_markup: {
+            inline_keyboard: [
+              [
+                { text: "Cancle", callback_data: "close" },
+                { text: "Confirm", callback_data: "confirmreset" },
+              ],
+            ],
+          },
+        });
+      } else if (userWallet.network === "sui") {
+        let reest_txt;
+        const user_pub_key = userWallet.sui.publicKey;
+        const balance = await suiClient.getBalance({
+          owner: userWallet.sui.publicKey,
+        });
+        const sui_balance = Number(balance.totalBalance) / 1000000000;
+
+        if (sui_balance > 0) {
+          reest_txt =
+            `Are you sure you want to <b>reset</b> your VertexTradingBot <b>Wallet</b>?\n\n` +
+            `<b>WARNING: This action is irreversible!</b>\n\n` +
+            `VertexTradingBot will generate a new wallet for you and discard your old one.\n\n` +
+            `You have <b>${eth_balance}</b> SOL in your wallet. If you don't withdraw or back up the private key it will get lost.`;
+        } else {
+          reest_txt =
+            `Are you sure you want to <b>reset</b> your VertexTradingBot <b>Wallet</b>?\n\n` +
+            `<b>WARNING: This action is irreversible!</b>\n\n` +
+            `VertexTradingBot will generate a new wallet for you and discard your old one.`;
+        }
+        bot.sendMessage(chatId, reest_txt, {
+          parse_mode: "HTML",
+          reply_markup: {
+            inline_keyboard: [
+              [
+                { text: "Cancle", callback_data: "close" },
+                { text: "Confirm", callback_data: "confirmreset" },
+              ],
+            ],
+          },
+        });
+      }
       break;
     case "confirmreset":
       // Handle confirm reset wallet button click
@@ -359,24 +490,78 @@ bot.on("callback_query", async (query) => {
       break;
     case "confirmresetcomplete":
       // Handle confirm reset wallet button click
-      let complete_txt =
-        `Your <b>Private Key</b> for your <b>OLD</b> wallet is:\n\n<code>${user_pri_key}</code>\n\n` +
-        ` You can now i.e. import the key into a wallet like Solflare. (tap to copy).` +
-        `Save this key in case you need to access this wallet again.`;
-      bot.sendMessage(chatId, complete_txt, { parse_mode: `HTML` });
+      if (userWallet.network === "sol") {
+        let complete_txt =
+          `Your <b>Private Key</b> for your <b>OLD</b> wallet is:\n\n<code>${userWallet.sol.privateKey}</code>\n\n` +
+          ` You can now i.e. import the key into a wallet like Solflare. (tap to copy).` +
+          `Save this key in case you need to access this wallet again.`;
+        bot.sendMessage(chatId, complete_txt, { parse_mode: `HTML` });
 
-      storage.getItem(`userWallet_${chatId}`).then(async (userWallet) => {
         const wallet = await web3.Keypair.generate();
         const publicKey = wallet.publicKey.toBase58();
         const privateKey = base58.encode(wallet.secretKey).toString();
-        userWallet.publicKey = publicKey;
-        userWallet.privateKey = privateKey;
+        userWallet.sol.publicKey = publicKey;
+        userWallet.sol.privateKey = privateKey;
         const txt =
           `Success: Your new wallet is:\n\n<code>${publicKey}</code>\n\n` +
           `You can now send SOL to this address to deposit into your new wallet. Press refresh to see your new wallet.`;
         await storage.setItem(`userWallet_${chatId}`, userWallet);
         bot.sendMessage(chatId, txt, { parse_mode: `HTML` });
-      });
+      }
+      if (userWallet.network === "bsc") {
+        let complete_txt =
+          `Your <b>Private Key</b> for your <b>OLD</b> wallet is:\n\n<code>${userWallet.bsc.privateKey}</code>\n\n` +
+          ` You can now i.e. import the key into a wallet like Metamask. (tap to copy).` +
+          `Save this key in case you need to access this wallet again.`;
+        bot.sendMessage(chatId, complete_txt, { parse_mode: `HTML` });
+        const bscWallet = ethers.Wallet.createRandom();
+        const bscPublicKey = bscWallet.address;
+        const bscPrivateKey = bscWallet.privateKey;
+        userWallet.bsc.publicKey = bscPublicKey;
+        userWallet.bsc.privateKey = bscPrivateKey;
+        const txt =
+          `Success: Your new wallet is:\n\n<code>${bscPublicKey}</code>\n\n` +
+          `You can now send SOL to this address to deposit into your new wallet. Press refresh to see your new wallet.`;
+        await storage.setItem(`userWallet_${chatId}`, userWallet);
+        bot.sendMessage(chatId, txt, { parse_mode: `HTML` });
+      }
+      if (userWallet.network === "eth") {
+        let complete_txt =
+          `Your <b>Private Key</b> for your <b>OLD</b> wallet is:\n\n<code>${userWallet.eth.privateKey}</code>\n\n` +
+          ` You can now i.e. import the key into a wallet like Metamask. (tap to copy).` +
+          `Save this key in case you need to access this wallet again.`;
+        bot.sendMessage(chatId, complete_txt, { parse_mode: `HTML` });
+        bot.sendMessage(chatId, complete_txt, { parse_mode: `HTML` });
+        const bscWallet = ethers.Wallet.createRandom();
+        const bscPublicKey = bscWallet.address;
+        const bscPrivateKey = bscWallet.privateKey;
+        userWallet.eth.publicKey = bscPublicKey;
+        userWallet.eth.privateKey = bscPrivateKey;
+        const txt =
+          `Success: Your new wallet is:\n\n<code>${bscPublicKey}</code>\n\n` +
+          `You can now send SOL to this address to deposit into your new wallet. Press refresh to see your new wallet.`;
+        await storage.setItem(`userWallet_${chatId}`, userWallet);
+        bot.sendMessage(chatId, txt, { parse_mode: `HTML` });
+      }
+
+      if (userWallet.network === "sui") {
+        let complete_txt =
+          `Your <b>Private Key</b> for your <b>OLD</b> wallet is:\n\n<code>${userWallet.sui.privateKey}</code>\n\n` +
+          ` You can now i.e. import the key into a wallet like Metamask. (tap to copy).` +
+          `Save this key in case you need to access this wallet again.`;
+        bot.sendMessage(chatId, complete_txt, { parse_mode: `HTML` });
+        const keypair = Ed25519Keypair.generate();
+        const suiAddress = keypair.getPublicKey().toSuiAddress();
+        const suiSecreteKey = keypair.getSecretKey().toString();
+        userWallet.sui.publicKey = suiAddress;
+        userWallet.sui.privateKey = suiSecreteKey;
+        const txt =
+          `Success: Your new wallet is:\n\n<code>${suiAddress}</code>\n\n` +
+          `You can now send SOL to this address to deposit into your new wallet. Press refresh to see your new wallet.`;
+        await storage.setItem(`userWallet_${chatId}`, userWallet);
+        bot.sendMessage(chatId, txt, { parse_mode: `HTML` });
+      }
+      storage.getItem(`userWallet_${chatId}`).then(async (userWallet) => {});
       complete_txt = "Success: Your new wallet is:";
       break;
     case "refresh_wallet":
@@ -402,26 +587,108 @@ bot.on("callback_query", async (query) => {
       break;
     case "buyx":
       // Handle buy x button click
-      bot
-        .sendMessage(
-          chatId,
-          `Reply with the amount you wish to buy (0-${walletbalance} SOL, Example:0.1)`,
-          {
-            reply_markup: {
-              force_reply: true,
-            },
-          }
-        )
-        .then((addApiId) => {
-          bot.onReplyToMessage(
-            addApiId.chat.id,
-            addApiId.message_id,
-            async (msg) => {
-              const buy_amount = msg.text;
-              BuySOL(chatId, bot, tokenAddress, buy_amount);
+      if (userWallet.network === "sol") {
+        bot
+          .sendMessage(
+            chatId,
+            `Reply with the amount you wish to buy (0-${walletbalance} SOL, Example:0.1)`,
+            {
+              reply_markup: {
+                force_reply: true,
+              },
             }
-          );
+          )
+          .then((addApiId) => {
+            bot.onReplyToMessage(
+              addApiId.chat.id,
+              addApiId.message_id,
+              async (msg) => {
+                const buy_amount = msg.text;
+                BuySOL(chatId, bot, tokenAddress, buy_amount);
+              }
+            );
+          });
+      }
+      if (userWallet.network === "bsc") {
+        const user_pub_key = userWallet.bsc.publicKey;
+        const web3 = new Web3(process.env.BSC_INFURA_URL);
+        const balance = await web3.eth.getBalance(user_pub_key);
+        const bsc_balance = web3.utils.fromWei(balance, "ether");
+        bot
+          .sendMessage(
+            chatId,
+            `Reply with the amount you wish to buy (0-${bsc_balance} BNB, Example:0.1)`,
+            {
+              reply_markup: {
+                force_reply: true,
+              },
+            }
+          )
+          .then((addApiId) => {
+            bot.onReplyToMessage(
+              addApiId.chat.id,
+              addApiId.message_id,
+              async (msg) => {
+                const buy_amount = msg.text;
+                BuyBNB(chatId, bot, tokenAddress, buy_amount);
+              }
+            );
+          });
+      }
+      if (userWallet.network === "eth") {
+        const user_pub_key = userWallet.eth.publicKey;
+        const web3 = new Web3(process.env.ETH_INFURA_URL);
+        const balance = await web3.eth.getBalance(user_pub_key);
+        const eth_balance = web3.utils.fromWei(balance, "ether");
+        bot
+          .sendMessage(
+            chatId,
+            `Reply with the amount you wish to buy (0-${eth_balance} ETH, Example:0.1)`,
+            {
+              reply_markup: {
+                force_reply: true,
+              },
+            }
+          )
+          .then((addApiId) => {
+            bot.onReplyToMessage(
+              addApiId.chat.id,
+              addApiId.message_id,
+              async (msg) => {
+                const buy_amount = msg.text;
+                BuyETH(chatId, bot, tokenAddress, buy_amount);
+              }
+            );
+          });
+      }
+      if (userWallet.network === "sui") {
+        const balance = await suiClient.getBalance({
+          owner: userWallet.sui.publicKey,
         });
+        const sui_balance = Number(balance.totalBalance) / 1000000000;
+        console.log("choosed sui balance:", sui_balance);
+
+        bot
+          .sendMessage(
+            chatId,
+            `Reply with the amount you wish to buy (0-${sui_balance} SUI, Example:0.1)`,
+            {
+              reply_markup: {
+                force_reply: true,
+              },
+            }
+          )
+          .then((addApiId) => {
+            bot.onReplyToMessage(
+              addApiId.chat.id,
+              addApiId.message_id,
+              async (msg) => {
+                const buy_amount = msg.text;
+                BuySOL(chatId, bot, tokenAddress, buy_amount);
+              }
+            );
+          });
+      }
       break;
     case "refresh_buy":
       // Handle refresh buy button click

@@ -77,7 +77,7 @@ const BuyETH = async (chatId, bot, tokenAddress, buy_amount) => {
       });
       return;
     } else {
-      txt = `Transaction confirmed!\nhttps://etherscan.io/tx/${receipt}`;
+      txt = `Transaction confirmed!\nhttps://bscscan.io/tx/${receipt.transactionHash}`;
 
       bot.editMessageText(txt, {
         chat_id: chatId,
