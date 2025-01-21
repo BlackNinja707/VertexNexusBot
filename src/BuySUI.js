@@ -1,99 +1,84 @@
 require("dotenv").config();
-const Web3 = require("web3");
 const storage = require("node-persist");
-const { PancakeRouterAbi } = require("./abi/pancakeRouterAbi");
+const { getFullnodeUrl, SuiClient } = require("@mysten/sui/client");
+const { DeepBookClient } = require("@mysten/deepbook-v3");
+const { Transaction } = require("@mysten/sui/transactions");
+
+const suiClient = new SuiClient({
+  url: getFullnodeUrl("mainnet"),
+});
 
 storage.init();
 
 const BuySUI = async (chatId, bot, tokenAddress, buy_amount) => {
-  const web3 = new Web3(process.env.ETH_INFURA_URL);
-  const amountInWei = web3.utils.toWei(buy_amount.toString(), "ether");
   const userWallet = await storage.getItem(`userWallet_${chatId}`);
 
-  let msgId = "";
-  let txt =
-    `Transaction sent. Waiting for confirmation...` +
-    `If transaction is slow to confirm increase transaction priority in /settings and` +
-    ` make sure you have enough bnb to pay for the fee. Keep retrying, high fee doesnt guarantee inclusion.`;
-  bot.sendMessage(chatId, txt, { parse_mode: `HTML` }).then((msg) => {
-    msgId = msg.message_id;
+  const balance = await suiClient.getBalance({
+    owner: userWallet.sui.publicKey,
   });
 
-  const pancakeSwapRouter = new web3.eth.Contract(
-    PancakeRouterAbi,
-    "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
-  );
+  const tx = new Transaction();
 
-  const path = [process.env.ETH_NATIVE_TOKEN_ADDRESS, tokenAddress];
-  const amountOutMin = 0;
-  const deadline = Math.floor(Date.now() / 1000) + 60 * 20;
+  const sui_balance = Number(balance.totalBalance) / 1000000000;
 
-  const nonce = await web3.eth.getTransactionCount(userWallet.bsc.publicKey);
+  if (sui_balance < buy_amount) {
+    bot.sendMessage(chatId, "Insufficient Balance");
+  } else {
+    const dbClient = new DeepBookClient({
+      address: userWallet.sui.publicKey,
+      env: "mainnet",
+      client: suiClient,
+    });
 
-  const gasPrice = await web3.eth.getGasPrice();
+    let msgId = "";
+    let txt =
+      `Transaction sent. Waiting for confirmation...` +
+      `If transaction is slow to confirm increase transaction priority in /settings and` +
+      ` make sure you have enough bnb to pay for the fee. Keep retrying, high fee doesnt guarantee inclusion.`;
 
-  try {
-    const gasLimit = await pancakeSwapRouter.methods
-      .swapExactETHForTokens(
-        amountOutMin,
-        path,
-        userWallet.bsc.publicKey,
-        deadline
-      )
-      .estimateGas({ from: userWallet.eth.publicKey, value: amountInWei });
+    bot.sendMessage(chatId, txt, { parse_mode: `HTML` }).then((msg) => {
+      msgId = msg.message_id;
+    });
 
-    const tx_data = pancakeSwapRouter.methods.swapExactETHForTokens(
-      amountOutMin,
-      path,
-      userWallet.eth.publicKey,
-      deadline
-    );
-    const rawTransaction = {
-      from: userWallet.eth.publicKey,
-      gasPrice: web3.utils.toHex(gasPrice),
-      gas: web3.utils.toHex(gasLimit),
-      nonce: String(nonce),
-      data: tx_data.encodeABI(),
-      value: amountInWei,
-      to: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
-      chainId: 1,
-    };
+    const [baseOut, quoteOut, deepOut] = dbClient.swapExactBaseForQuote({
+      poolKey: "SUI_DBUSDC",
+      amount: buy_amount, // amount of SUI to swap
+      deepAmount: 1, // amount of DEEP to pay as fees, excess is returned
+      minOut: 0.1, // minimum amount of DBUSDC to receive or transactionf fails
+    })(tx);
+    try {
+      tx.transferObjects(
+        [baseOut, quoteOut, deepOut],
+        userWallet.sui.publicKey
+      );
 
-    const signedTx = await web3.eth.accounts.signTransaction(
-      rawTransaction,
-      userWallet.eth.privateKey
-    );
+      if (!tx) {
+        txt = "Transaction failed.";
+        bot.editMessageText(txt, {
+          chat_id: chatId,
+          message_id: msgId,
+          parse_mode: "html",
+        });
+        return;
+      } else {
+        txt = `Transaction confirmed!\nhttps://bscscan.com/tx/${tx}`;
 
-    const receipt = await web3.eth.sendSignedTransaction(
-      signedTx.rawTransaction
-    );
-
-    if (!receipt) {
-      txt = "Transaction failed.";
+        bot.editMessageText(txt, {
+          chat_id: chatId,
+          message_id: msgId,
+          parse_mode: "html",
+        });
+      }
+    } catch (error) {
+      txt = "Transaction failed. Coundn't get a quote";
+      console.log("error:", error);
       bot.editMessageText(txt, {
         chat_id: chatId,
         message_id: msgId,
         parse_mode: "html",
       });
       return;
-    } else {
-      txt = `Transaction confirmed!\nhttps://bscscan.io/tx/${receipt.transactionHash}`;
-
-      bot.editMessageText(txt, {
-        chat_id: chatId,
-        message_id: msgId,
-        parse_mode: "html",
-      });
     }
-  } catch (error) {
-    txt = "Transaction failed. Coundn't get a quote";
-    console.log("error:", error);
-    bot.editMessageText(txt, {
-      chat_id: chatId,
-      message_id: msgId,
-      parse_mode: "html",
-    });
-    return;
   }
 };
 
