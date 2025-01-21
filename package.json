@@ -20,6 +20,7 @@
   "dependencies": {
     "@coral-xyz/anchor": "^0.29.0",
     "@moralisweb3/common-evm-utils": "^2.25.2",
+    "@mysten/deepbook-v3": "^0.12.25",
     "@mysten/sui": "^1.19.0",
     "@mysten/sui.js": "^0.54.1",
     "@project-serum/serum": "^0.13.65",

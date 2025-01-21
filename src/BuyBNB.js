@@ -82,7 +82,7 @@ const BuyBNB = async (chatId, bot, tokenAddress, buy_amount) => {
     } else {
       console.log("receipt:", receipt);
 
-      txt = `Transaction confirmed!\nhttps://bscscan.io/tx/${receipt.transactionHash}`;
+      txt = `Transaction confirmed!\nhttps://bscscan.com/tx/${receipt.transactionHash}`;
 
       bot.editMessageText(txt, {
         chat_id: chatId,

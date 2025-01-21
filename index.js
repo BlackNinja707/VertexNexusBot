@@ -22,6 +22,7 @@ const { BuyETH } = require("./src/BuyETH");
 
 const { SellSOL } = require("./src/SellSOL");
 const { setnetwork } = require("./src/SetNetwork");
+const { BuySUI } = require("./src/BuySUI");
 const Moralis = require("moralis").default;
 
 const suiClient = new SuiClient({
@@ -684,7 +685,7 @@ bot.on("callback_query", async (query) => {
               addApiId.message_id,
               async (msg) => {
                 const buy_amount = msg.text;
-                BuySOL(chatId, bot, tokenAddress, buy_amount);
+                BuySUI(chatId, bot, tokenAddress, buy_amount);
               }
             );
           });

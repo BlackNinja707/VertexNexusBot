@@ -5,8 +5,14 @@ const web3 = require("@solana/web3.js");
 const storage = require("node-persist");
 const { get_info, get_Price } = require("./Helius");
 const Web3 = require("web3");
-const { getPairAddress } = require("./utils");
+const { getPairAddress, getSuiPairAddress, getEthPairAddress } = require("./utils");
+const { getFullnodeUrl, SuiClient } = require("@mysten/sui/client");
 const connection = new web3.Connection(process.env.RPC_URL);
+
+const suiClient = new SuiClient({
+  url: getFullnodeUrl("mainnet"),
+});
+
 
 storage.init();
 
@@ -103,7 +109,7 @@ async function buy(chatId, bot, tokenAddress, msgId) {
     const balance = await web3.eth.getBalance(userWallet.eth.publicKey);
 
     const eth_balance = web3.utils.fromWei(balance, "ether");
-    const token_info = await getPairAddress(tokenAddress, userWallet.network);
+    const token_info = await getEthPairAddress(tokenAddress, userWallet.network);
     console.log("token_info:", token_info);
     const price = Number(token_info.priceNative);
 
@@ -175,11 +181,63 @@ async function buy(chatId, bot, tokenAddress, msgId) {
         [
           {
             text: "Explorer",
-            url: "https://bscscan.io/address/" + tokenAddress,
+            url: "https://bscscan.com/address/" + tokenAddress,
           },
           { text: "Birdeye", url: "https://birdeye.so/token/" + tokenAddress },
         ],
         [{ text: "Buy X BNB", callback_data: "buyx" }],
+        [{ text: "Refresh", callback_data: "refresh_buy" }],
+      ],
+    };
+    if (!msgId) {
+      bot.sendMessage(chatId, text, {
+        reply_markup: buy_markup,
+        parse_mode: "html",
+      });
+    } else {
+      bot.editMessageText(text, {
+        chat_id: chatId,
+        message_id: msgId,
+        reply_markup: buy_markup,
+        parse_mode: "html",
+      });
+    }
+  } else if (userWallet.network === "sui") {
+    user_pub_key = userWallet.sui.publicKey;
+    user_Wallet = userWallet.sui;
+
+    const balance = await suiClient.getBalance({
+      owner: userWallet.sui.publicKey,
+    });
+    const sui_balance = Number(balance.totalBalance) / 1000000000;
+    console.log("choosed sui balance:", sui_balance);
+
+    const token_info = await getSuiPairAddress(tokenAddress, userWallet.network);
+    console.log("token_info:", token_info);
+    const price = Number(token_info.priceNative);
+
+    const name = token_info.name;
+    const symbol = token_info.symbol;
+    const market_cap = token_info.market_cap / 10000000;
+
+    const text =
+      `${name} | <b>${symbol}</b> |\n<code>${tokenAddress}</code>\n\n` +
+      `Price : <b>$${price}SUI</b>\n` +
+      `5m: <b>+0.61</b>%, 1h: <b>+19.11</b>%, 6h: <b>+50.55</b>%, 24h: <b>+75.60</b>%\n` +
+      `Market Cap : <b>$${market_cap.toFixed(2)}M</b>\n\n` +
+      `Wallet Balance : <b>${sui_balance} SUI</b>\n` +
+      `To buy press one of the buttons below.`;
+    const buy_markup = {
+      inline_keyboard: [
+        [{ text: "Cancle", callback_data: "close" }],
+        [
+          {
+            text: "Explorer",
+            url: "https://suiscan.xyz/mainnet/coin/" + tokenAddress,
+          },
+          { text: "Birdeye", url: "https://birdeye.so/token/" + tokenAddress },
+        ],
+        [{ text: "Buy X SUI", callback_data: "buyx" }],
         [{ text: "Refresh", callback_data: "refresh_buy" }],
       ],
     };
